@@ -1,0 +1,61 @@
+-- 1. Products with sales but no stock at any site
+WITH latest_stock AS (
+    SELECT DISTINCT sku
+    FROM SOH_
+    WHERE date = (SELECT MAX(date) FROM SOH_)
+    AND quantity > 0
+)
+SELECT DISTINCT 
+    s.sku,
+    p.productLabelLong,
+    p.categoryParent
+FROM SALES_ s
+LEFT JOIN latest_stock ls ON s.sku = ls.sku
+JOIN PRODUCTS_ p ON s.sku = p.gtin
+WHERE ls.sku IS NULL;
+
+-- Adding appropriate indexes to improve performance:
+CREATE INDEX idx_soh_date ON SOH_(date);
+CREATE INDEX idx_soh_sku ON SOH_(sku);
+CREATE INDEX idx_sales_sku ON SALES_(sku);
+CREATE INDEX idx_products_gtin ON PRODUCTS_(gtin);
+
+-- 2. TOP 10 sale locations with highest sales on November 13, 2024
+SELECT 
+    s.site_code,
+    COUNT(DISTINCT s.sku) as unique_products_sold,
+    SUM(s.sales_qty) as total_quantity_sold
+FROM SALES_ s
+WHERE s.date = '2024-11-13'
+GROUP BY s.site_code
+ORDER BY total_quantity_sold DESC
+LIMIT 10;
+
+-- 3. Products with only one unit in stock by location (as of latest date)
+WITH latest_date AS (
+    SELECT MAX(date) as max_date 
+    FROM SOH_
+),
+single_stock_items AS (
+    SELECT 
+        s.site_code,
+        s.sku,
+        s.quantity
+    FROM SOH_ s
+    JOIN latest_date ld ON s.date = ld.max_date
+    WHERE s.quantity = 1
+)
+SELECT 
+    ssi.site_code,
+    ssi.sku,
+    p.productLabelLong as product_description,
+    ssi.quantity
+FROM single_stock_items ssi
+JOIN PRODUCTS_ p ON ssi.sku = p.gtin
+ORDER BY ssi.site_code, p.productLabelLong;
+
+-- Additional indexes for optimizing these queries:
+CREATE INDEX idx_sales_date ON SALES_(date);
+CREATE INDEX idx_sales_site_code ON SALES_(site_code);
+CREATE INDEX idx_soh_site_code ON SOH_(site_code);
+CREATE INDEX idx_soh_quantity ON SOH_(quantity);
